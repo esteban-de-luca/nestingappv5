@@ -69,29 +69,12 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 # Google Drive helpers (lee secrets por campos sueltos)
 # =========================================================
 def get_drive_service():
-    """
-    Requiere Streamlit Secrets:
-
-    [gdrive]
-    folder_id = "..."
-
-    [gdrive_sa]
-    type = "service_account"
-    project_id = "..."
-    private_key_id = "..."
-    private_key = """-----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----"""
-    client_email = "....iam.gserviceaccount.com"
-    client_id = "..."
-    token_uri = "https://oauth2.googleapis.com/token"
-    """
     if "gdrive_sa" not in st.secrets:
         raise ValueError("Falta la sección [gdrive_sa] en Secrets.")
 
     sa_info = dict(st.secrets["gdrive_sa"])
 
-    # Normaliza: a veces llega con \\n
+    # Normaliza: a veces llega con \\n en lugar de saltos reales
     if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
         sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
 
@@ -105,6 +88,7 @@ def get_drive_service():
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -898,6 +882,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
 
