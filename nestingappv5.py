@@ -113,11 +113,6 @@ def get_drive_service():
     if missing:
         raise ValueError(f"Secrets gdrive_sa.json NO contiene campos requeridos: {missing}")
 
-    st.sidebar.write("Drive SA keys:", sorted(list(sa_info.keys())))
-st.sidebar.write("client_email:", sa_info.get("client_email", "—"))
-st.sidebar.write("token_uri:", sa_info.get("token_uri", "—"))
-
-    
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
@@ -929,5 +924,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
