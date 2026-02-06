@@ -1,3 +1,4 @@
+import json
 import io
 import csv
 import zipfile
@@ -96,6 +97,32 @@ def list_csv_files_in_folder(folder_id: str) -> List[dict]:
         pageSize=200
     ).execute()
     return resp.get("files", [])
+
+def get_drive_service():
+    # Lee el JSON del service account desde Secrets
+    sa_json = st.secrets["gdrive_sa"]["json"]
+
+    # Por si se pegó con espacios/lines raros
+    sa_json = sa_json.strip()
+
+    sa_info = json.loads(sa_json)
+
+    # Garantiza que los campos clave existen
+    required = ["client_email", "token_uri", "private_key", "type"]
+    missing = [k for k in required if k not in sa_info]
+    if missing:
+        raise ValueError(f"Secrets gdrive_sa.json NO contiene campos requeridos: {missing}")
+
+    st.sidebar.write("Drive SA keys:", sorted(list(sa_info.keys())))
+st.sidebar.write("client_email:", sa_info.get("client_email", "—"))
+st.sidebar.write("token_uri:", sa_info.get("token_uri", "—"))
+
+    
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"],
+    )
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
 def download_drive_file_as_bytes(file_id: str) -> bytes:
@@ -902,4 +929,5 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
