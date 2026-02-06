@@ -74,9 +74,22 @@ def get_drive_service():
 
     sa_info = dict(st.secrets["gdrive_sa"])
 
-    # Normaliza: a veces llega con \\n en lugar de saltos reales
-    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
-        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+    pk = sa_info.get("private_key", "")
+    if not isinstance(pk, str) or not pk.strip():
+        raise ValueError("private_key vacío o inválido en Secrets [gdrive_sa].")
+
+    # Normaliza saltos de línea y quita basura típica de pegado
+    pk = pk.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+    pk = pk.strip()
+
+    # Elimina espacios al inicio de cada línea (a veces Streamlit/TOML mete indent)
+    pk = "\n".join(line.strip() for line in pk.split("\n"))
+
+    # Asegura delimitadores correctos
+    if "BEGIN PRIVATE KEY" not in pk or "END PRIVATE KEY" not in pk:
+        raise ValueError("private_key no contiene delimitadores BEGIN/END.")
+
+    sa_info["private_key"] = pk
 
     required = ["type", "client_email", "token_uri", "private_key"]
     missing = [k for k in required if k not in sa_info or not sa_info[k]]
@@ -88,6 +101,7 @@ def get_drive_service():
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
 
 
 
@@ -882,6 +896,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
 
