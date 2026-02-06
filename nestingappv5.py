@@ -3,7 +3,7 @@ import csv
 import zipfile
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 import pandas as pd
 import streamlit as st
@@ -11,9 +11,14 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
+# Google Drive
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
 
 # =========================================================
-# CUBRO - Quick Nesting v5 (UI/UX refactor; lógica intacta)
+# CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # Archivo: nestingappv5.py
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
@@ -60,9 +65,63 @@ PREVIEW_WIDTH_PRESETS = {
 DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 
 
-# ---------------------------------------------------------
+# =========================================================
+# Google Drive helpers
+# =========================================================
+def get_drive_service():
+    """
+    Requiere secrets.toml:
+    [gdrive]
+    folder_id = "..."
+
+    [gdrive_sa]
+    ... (service account json as TOML)
+    """
+    sa_info = dict(st.secrets["gdrive_sa"])
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"],
+    )
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def list_csv_files_in_folder(folder_id: str) -> List[dict]:
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false"
+    resp = service.files().list(
+        q=q,
+        fields="files(id,name,modifiedTime,size)",
+        orderBy="modifiedTime desc",
+        pageSize=200
+    ).execute()
+    return resp.get("files", [])
+
+
+def download_drive_file_as_bytes(file_id: str) -> bytes:
+    service = get_drive_service()
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return fh.getvalue()
+
+
+class BytesUploadedFile:
+    """Wrapper para que read_csv_robust pueda usar getvalue() como si fuera UploadedFile."""
+    def __init__(self, data: bytes, name: str = "drive.csv"):
+        self._data = data
+        self.name = name
+
+    def getvalue(self):
+        return self._data
+
+
+# =========================================================
 # Helpers normalización
-# ---------------------------------------------------------
+# =========================================================
 def _norm_text(s: str) -> str:
     s = (s or "").strip().lower()
     s = unicodedata.normalize("NFKD", s)
@@ -105,10 +164,7 @@ def get_board_rule(gama_norm: str, acabado_norm: str):
 
 
 def auto_preview_cols(preview_width_px: int) -> int:
-    """
-    Opción 1: columnas automáticas según el tamaño de miniatura.
-    Evita solapes y mantiene una densidad visual razonable.
-    """
+    # Opción 1: columnas automáticas según el tamaño de miniatura (evita solapes).
     if preview_width_px >= 360:
         return 2
     if preview_width_px >= 300:
@@ -116,9 +172,9 @@ def auto_preview_cols(preview_width_px: int) -> int:
     return 4
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Lectura robusta CSV
-# ---------------------------------------------------------
+# =========================================================
 def read_csv_robust(uploaded_file) -> pd.DataFrame:
     raw = uploaded_file.getvalue()
     if raw is None or len(raw) == 0:
@@ -214,9 +270,9 @@ def load_pieces_v5(uploaded_file) -> pd.DataFrame:
     return out
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Packing con coordenadas (Guillotine simple + pruning)
-# ---------------------------------------------------------
+# =========================================================
 @dataclass
 class FreeRect:
     x: float
@@ -265,12 +321,10 @@ def prune_free_rects(frees: List[FreeRect]) -> List[FreeRect]:
 
 def split_free_rect(fr: FreeRect, placed: FreeRect) -> List[FreeRect]:
     res = []
-    # derecha
     rw = fr.w - placed.w
     rh = placed.h
     if rw > 0 and rh > 0:
         res.append(FreeRect(fr.x + placed.w, fr.y, rw, rh))
-    # arriba
     uw = fr.w
     uh = fr.h - placed.h
     if uw > 0 and uh > 0:
@@ -297,7 +351,6 @@ def pack_group_with_positions(
             work.append(it)
 
     work.sort(key=lambda p: (max(p.w, p.h), p.w * p.h), reverse=True)
-
     boards: List[List[PlacedPiece]] = []
 
     while work:
@@ -354,18 +407,18 @@ def pack_group_with_positions(
     return boards, unplaced
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Colores por Typology (determinista)
-# ---------------------------------------------------------
+# =========================================================
 def typology_color_map(typologies: List[str]) -> Dict[str, Tuple[float, float, float, float]]:
     uniq = sorted({str(t) for t in typologies})
     cmap = plt.get_cmap("tab20")
     return {t: cmap(i % 20) for i, t in enumerate(uniq)}
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Render PNG por tablero (leyenda vertical fuera del dibujo)
-# ---------------------------------------------------------
+# =========================================================
 def render_board_png(
     board_w: int,
     board_h: int,
@@ -440,7 +493,6 @@ def render_board_png(
 # =========================================================
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
-# CSS base (discreto)
 st.markdown(
     """
 <style>
@@ -454,20 +506,70 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
-st.caption("v5: reorganización de interfaz (sidebar + secciones). Misma lógica y reglas que v4.")
+st.caption("v5: sidebar + secciones + Drive dropdown. Misma lógica y reglas que v4/v5.")
 
 
 # ---------------- Sidebar ----------------
 st.sidebar.header("Configuración")
 
-uploaded = st.sidebar.file_uploader("Subir CSV", type=["csv"])
-st.sidebar.caption("Formato: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
+# Fuente de CSV
+source = st.sidebar.radio("Origen del CSV", ["Google Drive (carpeta)", "Subida manual"], index=0)
+
+uploaded = None  # objeto con getvalue()
+
+if source == "Google Drive (carpeta)":
+    if "gdrive" not in st.secrets or "folder_id" not in st.secrets["gdrive"]:
+        st.sidebar.error("Falta configurar [gdrive].folder_id en Secrets.")
+        st.stop()
+
+    folder_id = st.secrets["gdrive"]["folder_id"]
+
+    try:
+        files = list_csv_files_in_folder(folder_id)
+    except Exception as e:
+        st.sidebar.error(f"No pude listar archivos en Drive. Revisa permisos/Secrets. Error: {e}")
+        st.stop()
+
+    if not files:
+        st.sidebar.warning("No se encontraron CSV en la carpeta (o no hay permisos).")
+        st.stop()
+
+    # Dropdown: nombre — fecha
+    options = {
+        f'{f["name"]}  —  {str(f.get("modifiedTime",""))[:10]}': (f["id"], f["name"])
+        for f in files
+    }
+    chosen_label = st.sidebar.selectbox("Selecciona un CSV de Drive", list(options.keys()))
+    chosen_id, chosen_name = options[chosen_label]
+
+    # Botones
+    b1, b2 = st.sidebar.columns(2)
+    with b1:
+        refresh = st.button("Refrescar lista")
+    with b2:
+        load_drive = st.button("Cargar CSV")
+
+    if refresh:
+        list_csv_files_in_folder.clear()  # limpia cache
+        st.rerun()
+
+    if load_drive:
+        with st.spinner("Descargando CSV desde Drive..."):
+            try:
+                data = download_drive_file_as_bytes(chosen_id)
+                uploaded = BytesUploadedFile(data, name=chosen_name)
+                st.sidebar.success(f"Cargado: {chosen_name}")
+            except Exception as e:
+                st.sidebar.error(f"No pude descargar el archivo. Error: {e}")
+                st.stop()
+
+else:
+    uploaded = st.sidebar.file_uploader("Subir CSV", type=["csv"])
+
+st.sidebar.caption("Formato esperado: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
 
 with st.sidebar.expander("Nesting visual", expanded=True):
-    # IMPORTANTE: ya no hay checkbox de previsualización:
-    # - la previsualización se genera SIEMPRE que se generen layouts
     make_layouts = st.checkbox("Generar layouts (PNG + ZIP)", value=False)
-
     preview_preset = st.selectbox(
         "Tamaño miniaturas",
         list(PREVIEW_WIDTH_PRESETS.keys()),
@@ -488,8 +590,8 @@ with st.sidebar.expander("Notas (para export)", expanded=False):
 
 
 # ---------------- Load data ----------------
-if not uploaded:
-    st.info("Sube un CSV desde el panel lateral para comenzar.")
+if uploaded is None:
+    st.info("Selecciona un CSV (Drive) o súbelo manualmente desde el panel lateral.")
     st.stop()
 
 try:
@@ -533,7 +635,7 @@ for keys, grp in filtered.groupby(["Material_norm", "Gama_norm", "Acabado_norm"]
         PieceItem(piece_id=str(r["PieceID"]), typology=str(r["Typology"]), w=float(r["W"]), h=float(r["H"]))
         for _, r in grp.iterrows()
     ]
-    boards, _unplaced = pack_group_with_positions(items, usable_w, usable_h, allow_rotate)
+    boards, _ = pack_group_with_positions(items, usable_w, usable_h, allow_rotate)
     bcount = len(boards)
     boards_total_global += bcount
 
@@ -643,7 +745,7 @@ for keys, grp in filtered.groupby(group_cols_global, dropna=False):
         PieceItem(piece_id=str(r["PieceID"]), typology=str(r["Typology"]), w=float(r["W"]), h=float(r["H"]))
         for _, r in grp.iterrows()
     ]
-    boards, _unplaced = pack_group_with_positions(items, usable_w, usable_h, allow_rotate)
+    boards, _ = pack_group_with_positions(items, usable_w, usable_h, allow_rotate)
     boards_count = len(boards)
 
     total_nom_area = float((grp["W"] * grp["H"]).sum())
@@ -718,10 +820,8 @@ st.caption("Se generan PNGs por tablero para cada grupo Material + Gama + Acabad
 if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
     colors = typology_color_map(filtered["Typology"].astype(str).tolist())
     preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
-
     cols_n = auto_preview_cols(int(preview_width_px))
 
-    # Preview siempre ON (sin checkbox)
     preview_images: List[Tuple[str, int, bytes]] = []  # [(group_name, tablero_idx, png_bytes)]
 
     zip_buf = io.BytesIO()
@@ -763,7 +863,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
                 zf.writestr(f"{group_name}/TABLERO_{bi:03d}.png", png_bytes)
 
-                # Preview: siempre se recolecta (limitado por el número máximo)
                 if preview_max_boards_per_group == 0 or bi <= int(preview_max_boards_per_group):
                     preview_images.append((group_name, bi, png_bytes))
 
@@ -775,7 +874,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
     zip_buf.seek(0)
 
-    # Preview en pantalla (SIEMPRE visible tras generar)
     if preview_images:
         st.markdown("### Previsualización")
 
@@ -790,11 +888,10 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
                 cols = st.columns(cols_n)
                 for idx, (bi, pngbytes) in enumerate(imgs):
                     with cols[idx % cols_n]:
-                        # NO adaptativo: width fijo
                         st.image(
                             pngbytes,
                             caption=f"Tablero {bi}",
-                            width=int(preview_width_px),
+                            width=int(preview_width_px),  # NO adaptativo
                         )
 
     st.success("ZIP generado.")
@@ -805,5 +902,4 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
-
 
