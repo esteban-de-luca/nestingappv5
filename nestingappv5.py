@@ -70,20 +70,18 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 # Google Drive helpers
 # =========================================================
 def get_drive_service():
-    """
-    Requiere secrets.toml:
-    [gdrive]
-    folder_id = "..."
-
-    [gdrive_sa]
-    ... (service account json as TOML)
-    """
     sa_info = dict(st.secrets["gdrive_sa"])
+
+    # Si tu private_key viniera con \n escapados, esto lo corrige.
+    # Si ya viene con saltos reales, no rompe nada.
+    sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -924,6 +922,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
 
