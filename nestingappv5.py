@@ -64,6 +64,14 @@ DEFAULT_PREVIEW_COLS = 4
 # ---------------------------------------------------------
 # Helpers normalización
 # ---------------------------------------------------------
+def auto_preview_cols(preview_width_px: int) -> int:
+    # Ajuste muy estable para pantallas normales + fullscreen
+    if preview_width_px >= 360:
+        return 2
+    if preview_width_px >= 300:
+        return 3
+    return 4
+
 def _norm_text(s: str) -> str:
     s = (s or "").strip().lower()
     s = unicodedata.normalize("NFKD", s)
@@ -770,15 +778,12 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
             imgs.sort(key=lambda x: x[0])
 
             with st.expander(group_name.replace("__", " / "), expanded=False):
-                cols = st.columns(int(preview_cols))
+                cols_n = auto_preview_cols(int(preview_width_px))
+                cols = st.columns(cols_n)
                 for idx, (bi, pngbytes) in enumerate(imgs):
-                    with cols[idx % int(preview_cols)]:
-                        # NO use_container_width -> tamaño fijo real
-                        st.image(
-                            pngbytes,
-                            caption=f"Tablero {bi}",
-                            width=int(preview_width_px),
-                        )
+                     with cols[idx % cols_n]:
+                    st.image(pngbytes, caption=f"Tablero {bi}", width=int(preview_width_px),)
+
 
     st.success("ZIP generado.")
     st.download_button(
@@ -788,5 +793,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
