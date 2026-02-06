@@ -19,11 +19,9 @@ from googleapiclient.http import MediaIoBaseDownload
 
 # =========================================================
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
-# Archivo: nestingappv5.py
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
 
-# Reglas
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
 
@@ -34,7 +32,6 @@ BOARD_RULES = {
     "laca": {"board_w": 1220, "board_h": 2750, "rotate": True},
 }
 
-# Traducción + normalización de gamas
 GAMA_SYNONYMS = {
     "lac": "laca",
     "woo": "wood",
@@ -48,7 +45,6 @@ GAMA_SYNONYMS = {
     "laminado": "laminado",
 }
 
-# Nombre legible
 GAMA_DISPLAY = {
     "laca": "Laca",
     "wood": "Wood",
@@ -56,7 +52,6 @@ GAMA_DISPLAY = {
     "laminado": "Laminado",
 }
 
-# Preview UI defaults (NO adaptativo)
 PREVIEW_WIDTH_PRESETS = {
     "XS (muy pequeño)": 220,
     "S (pequeño)": 280,
@@ -66,7 +61,7 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 
 
 # =========================================================
-# Google Drive helpers (lee secrets por campos sueltos)
+# Drive helpers
 # =========================================================
 def get_drive_service():
     if "gdrive_sa" not in st.secrets:
@@ -78,14 +73,10 @@ def get_drive_service():
     if not isinstance(pk, str) or not pk.strip():
         raise ValueError("private_key vacío o inválido en Secrets [gdrive_sa].")
 
-    # Normaliza saltos de línea y quita basura típica de pegado
     pk = pk.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
     pk = pk.strip()
-
-    # Elimina espacios al inicio de cada línea (a veces Streamlit/TOML mete indent)
     pk = "\n".join(line.strip() for line in pk.split("\n"))
 
-    # Asegura delimitadores correctos
     if "BEGIN PRIVATE KEY" not in pk or "END PRIVATE KEY" not in pk:
         raise ValueError("private_key no contiene delimitadores BEGIN/END.")
 
@@ -101,8 +92,6 @@ def get_drive_service():
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -130,7 +119,6 @@ def download_drive_file_as_bytes(file_id: str) -> bytes:
 
 
 class BytesUploadedFile:
-    """Wrapper para que read_csv_robust pueda usar getvalue() como si fuera UploadedFile."""
     def __init__(self, data: bytes, name: str = "drive.csv"):
         self._data = data
         self.name = name
@@ -140,7 +128,7 @@ class BytesUploadedFile:
 
 
 # =========================================================
-# Helpers normalización
+# Normalización
 # =========================================================
 def _norm_text(s: str) -> str:
     s = (s or "").strip().lower()
@@ -184,7 +172,6 @@ def get_board_rule(gama_norm: str, acabado_norm: str):
 
 
 def auto_preview_cols(preview_width_px: int) -> int:
-    # Columnas automáticas según el tamaño de miniatura (evita solapes).
     if preview_width_px >= 360:
         return 2
     if preview_width_px >= 300:
@@ -193,7 +180,7 @@ def auto_preview_cols(preview_width_px: int) -> int:
 
 
 # =========================================================
-# Lectura robusta CSV
+# CSV robusto
 # =========================================================
 def read_csv_robust(uploaded_file) -> pd.DataFrame:
     raw = uploaded_file.getvalue()
@@ -291,7 +278,7 @@ def load_pieces_v5(uploaded_file) -> pd.DataFrame:
 
 
 # =========================================================
-# Packing con coordenadas (Guillotine simple + pruning)
+# Nesting (guillotine)
 # =========================================================
 @dataclass
 class FreeRect:
@@ -427,18 +414,12 @@ def pack_group_with_positions(
     return boards, unplaced
 
 
-# =========================================================
-# Colores por Typology (determinista)
-# =========================================================
 def typology_color_map(typologies: List[str]) -> Dict[str, Tuple[float, float, float, float]]:
     uniq = sorted({str(t) for t in typologies})
     cmap = plt.get_cmap("tab20")
     return {t: cmap(i % 20) for i, t in enumerate(uniq)}
 
 
-# =========================================================
-# Render PNG por tablero (leyenda vertical fuera del dibujo)
-# =========================================================
 def render_board_png(
     board_w: int,
     board_h: int,
@@ -462,6 +443,7 @@ def render_board_png(
         x = EDGE_MARGIN + p.x
         y = EDGE_MARGIN + p.y
         col = color_by_typology.get(str(p.typology), (0.7, 0.7, 0.7, 1.0))
+
         ax.add_patch(Rectangle((x, y), p.w, p.h, facecolor=col, edgecolor="black", linewidth=0.6, alpha=0.9))
         ax.text(x + p.w / 2, y + p.h / 2, str(p.piece_id), ha="center", va="center", fontsize=6, color="black")
 
@@ -480,15 +462,25 @@ def render_board_png(
             for t in legend_items
         ]
         ax.legend(
-            handles, legend_items,
-            loc="center left", bbox_to_anchor=(1.01, 0.5),
-            borderaxespad=0.0, frameon=False, fontsize=7, ncol=1
+            handles,
+            legend_items,
+            loc="center left",
+            bbox_to_anchor=(1.01, 0.5),
+            borderaxespad=0.0,
+            frameon=False,
+            fontsize=7,
+            ncol=1,
         )
+
         if len(present_typologies) > legend_max_items:
             ax.text(
-                1.01, 0.02,
+                1.01,
+                0.02,
                 f"+{len(present_typologies) - legend_max_items} tipologías más",
-                transform=ax.transAxes, fontsize=7, ha="left", va="bottom"
+                transform=ax.transAxes,
+                fontsize=7,
+                ha="left",
+                va="bottom",
             )
 
     buf = io.BytesIO()
@@ -501,6 +493,13 @@ def render_board_png(
 # UI
 # =========================================================
 st.set_page_config(page_title=APP_TITLE, layout="wide")
+
+# --- Session state init (CLAVE para que no se pierda el CSV) ---
+if "csv_bytes" not in st.session_state:
+    st.session_state["csv_bytes"] = None
+if "csv_name" not in st.session_state:
+    st.session_state["csv_name"] = None
+
 st.markdown(
     """
 <style>
@@ -514,15 +513,13 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
-st.caption("v5: selector CSV desde carpeta de Drive (dropdown) o subida manual.")
+st.caption("v5: selector CSV desde Drive (dropdown) o subida manual. (Fix: el CSV no se pierde al generar layouts)")
 
-
-# ---------------- Sidebar ----------------
 st.sidebar.header("Configuración")
 
 source = st.sidebar.radio("Origen del CSV", ["Google Drive (carpeta)", "Subida manual"], index=0)
-uploaded = None  # objeto con getvalue()
 
+# ---- Drive selection / manual upload ----
 if source == "Google Drive (carpeta)":
     if "gdrive" not in st.secrets or "folder_id" not in st.secrets["gdrive"]:
         st.sidebar.error("Falta configurar [gdrive].folder_id en Secrets.")
@@ -549,26 +546,24 @@ if source == "Google Drive (carpeta)":
 
     b1, b2 = st.sidebar.columns(2)
     with b1:
-        refresh = st.button("Refrescar lista")
+        if st.button("Refrescar lista"):
+            list_csv_files_in_folder.clear()
+            st.rerun()
     with b2:
-        load_drive = st.button("Cargar CSV")
-
-    if refresh:
-        list_csv_files_in_folder.clear()
-        st.rerun()
-
-    if load_drive:
-        with st.spinner("Descargando CSV desde Drive..."):
-            try:
+        if st.button("Cargar CSV"):
+            with st.spinner("Descargando CSV desde Drive..."):
                 data = download_drive_file_as_bytes(chosen_id)
-                uploaded = BytesUploadedFile(data, name=chosen_name)
-                st.sidebar.success(f"Cargado: {chosen_name}")
-            except Exception as e:
-                st.sidebar.error(f"No pude descargar el archivo. Error: {e}")
-                st.stop()
+                st.session_state["csv_bytes"] = data
+                st.session_state["csv_name"] = chosen_name
+            st.sidebar.success(f"Cargado: {chosen_name}")
 
 else:
-    uploaded = st.sidebar.file_uploader("Subir CSV", type=["csv"])
+    up = st.sidebar.file_uploader("Subir CSV", type=["csv"])
+    if up is not None:
+        # Persistir bytes en session_state para que no se pierda en reruns
+        st.session_state["csv_bytes"] = up.getvalue()
+        st.session_state["csv_name"] = getattr(up, "name", "upload.csv")
+        st.sidebar.success(f"Cargado: {st.session_state['csv_name']}")
 
 st.sidebar.caption("Formato esperado: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
 
@@ -586,17 +581,17 @@ with st.sidebar.expander("Nesting visual", expanded=True):
         value=6,
         step=1,
     )
-    st.caption("Columnas del preview: automático según el tamaño para evitar solapes.")
 
 with st.sidebar.expander("Notas (para export)", expanded=False):
     nota_titulo = st.text_input("Título / referencia", value="")
     nota_texto = st.text_area("Notas", value="", height=90)
 
-
-# ---------------- Load data ----------------
-if uploaded is None:
-    st.info("Selecciona un CSV (Drive) o súbelo manualmente desde el panel lateral.")
+# ---- Usar SIEMPRE el CSV persistido ----
+if st.session_state["csv_bytes"] is None:
+    st.info("Carga un CSV desde Drive o súbelo manualmente desde el panel lateral.")
     st.stop()
+
+uploaded = BytesUploadedFile(st.session_state["csv_bytes"], name=st.session_state["csv_name"] or "data.csv")
 
 try:
     pieces = load_pieces_v5(uploaded)
@@ -604,8 +599,6 @@ except Exception as e:
     st.error(str(e))
     st.stop()
 
-
-# ---------------- Sidebar filters ----------------
 projects = sorted(pieces["ProjectID"].astype(str).unique().tolist())
 with st.sidebar.expander("Filtros", expanded=True):
     default_sel = projects[:50] if len(projects) > 50 else projects
@@ -616,8 +609,7 @@ if filtered.empty:
     st.warning("Con esos filtros no quedan piezas.")
     st.stop()
 
-
-# ---------------- Main: Resumen rápido ----------------
+# ---- Resumen rápido ----
 total_projects = filtered["ProjectID"].nunique()
 total_pieces = len(filtered)
 
@@ -625,7 +617,7 @@ boards_total_global = 0
 util_vals = []
 
 for keys, grp in filtered.groupby(["Material_norm", "Gama_norm", "Acabado_norm"], dropna=False):
-    mat_n, gama_n, acab_n = keys
+    _mat_n, gama_n, acab_n = keys
     rule = get_board_rule(gama_n, acab_n)
     if rule is None:
         continue
@@ -654,11 +646,9 @@ m1.metric("Proyectos", f"{total_projects}")
 m2.metric("Piezas", f"{total_pieces}")
 m3.metric("Tableros (est.)", f"{boards_total_global}")
 m4.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
-
 st.divider()
 
-
-# ---------------- Main: Vista previa (filtrable) ----------------
+# ---- Vista previa ----
 with st.expander("Vista previa (filtrable)", expanded=False):
     HIDE_PREVIEW_COLS = {"Material_norm", "Gama_norm", "Acabado_norm"}
     cols_all = [c for c in pieces.columns if c not in HIDE_PREVIEW_COLS]
@@ -682,8 +672,7 @@ with st.expander("Vista previa (filtrable)", expanded=False):
 
     st.dataframe(preview_df[cols_selected].head(250), use_container_width=True)
 
-
-# ---------------- Main: Tablas resultados ----------------
+# ---- Tablas resultados ----
 rows = []
 issues = []
 
@@ -735,7 +724,6 @@ rows2 = []
 group_cols_global = ["Material_norm", "Gama_norm", "Acabado_norm", "Material", "Gama", "Acabado"]
 for keys, grp in filtered.groupby(group_cols_global, dropna=False):
     mat_n, gama_n, acab_n, _mat_raw, gama_raw, acab_raw = keys
-
     rule = get_board_rule(gama_n, acab_n)
     if rule is None:
         continue
@@ -781,8 +769,7 @@ if issues:
         for msg in issues:
             st.write(msg)
 
-
-# ---------------- Main: Descargas ----------------
+# ---- Descargas ----
 st.subheader("Descargas")
 d1, d2 = st.columns(2)
 
@@ -810,8 +797,7 @@ with d2:
 
 st.divider()
 
-
-# ---------------- Main: Nesting visual ----------------
+# ---- Nesting visual ----
 st.subheader("Nesting visual")
 
 if not make_layouts:
@@ -820,6 +806,7 @@ if not make_layouts:
 
 st.caption("Se generan PNGs por tablero para cada grupo Material + Gama + Acabado (según el filtro de proyectos).")
 
+# Importante: botón que rerunea pero NO pierde el CSV porque está en session_state
 if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
     colors = typology_color_map(filtered["Typology"].astype(str).tolist())
     preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
@@ -837,7 +824,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
             if rule is None:
                 continue
 
-            board_w, board_h, allow_rotate = rule["board_w"], rule["board_h"], rule["rotate"]
+            board_w, board_h, _allow_rotate = rule["board_w"], rule["board_h"], rule["rotate"]
             usable_w = board_w - 2 * EDGE_MARGIN
             usable_h = board_h - 2 * EDGE_MARGIN
 
@@ -845,7 +832,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
                 PieceItem(piece_id=str(r["PieceID"]), typology=str(r["Typology"]), w=float(r["W"]), h=float(r["H"]))
                 for _, r in grp.iterrows()
             ]
-            boards, unplaced = pack_group_with_positions(items, usable_w, usable_h, allow_rotate)
+            boards, unplaced = pack_group_with_positions(items, usable_w, usable_h, rule["rotate"])
 
             gama_disp = GAMA_DISPLAY.get(gama_n, str(gama_raw))
             group_name = f"{mat_n}__{gama_disp}__{str(acab_raw)}".replace("/", "-").replace("\\", "-").replace(":", "-")
