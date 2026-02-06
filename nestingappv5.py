@@ -66,8 +66,46 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 
 
 # =========================================================
-# Google Drive helpers (NUEVO: lee secrets por campos sueltos, no json)
+# Google Drive helpers (lee secrets por campos sueltos)
 # =========================================================
+def get_drive_service():
+    """
+    Requiere Streamlit Secrets:
+
+    [gdrive]
+    folder_id = "..."
+
+    [gdrive_sa]
+    type = "service_account"
+    project_id = "..."
+    private_key_id = "..."
+    private_key = """-----BEGIN PRIVATE KEY-----
+    ...
+    -----END PRIVATE KEY-----"""
+    client_email = "....iam.gserviceaccount.com"
+    client_id = "..."
+    token_uri = "https://oauth2.googleapis.com/token"
+    """
+    if "gdrive_sa" not in st.secrets:
+        raise ValueError("Falta la sección [gdrive_sa] en Secrets.")
+
+    sa_info = dict(st.secrets["gdrive_sa"])
+
+    # Normaliza: a veces llega con \\n
+    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
+        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+
+    required = ["type", "client_email", "token_uri", "private_key"]
+    missing = [k for k in required if k not in sa_info or not sa_info[k]]
+    if missing:
+        raise ValueError(f"Secrets [gdrive_sa] incompleto. Faltan: {missing}")
+
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"],
+    )
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def list_csv_files_in_folder(folder_id: str) -> List[dict]:
@@ -426,7 +464,6 @@ def render_board_png(
         x = EDGE_MARGIN + p.x
         y = EDGE_MARGIN + p.y
         col = color_by_typology.get(str(p.typology), (0.7, 0.7, 0.7, 1.0))
-
         ax.add_patch(Rectangle((x, y), p.w, p.h, facecolor=col, edgecolor="black", linewidth=0.6, alpha=0.9))
         ax.text(x + p.w / 2, y + p.h / 2, str(p.piece_id), ha="center", va="center", fontsize=6, color="black")
 
@@ -445,25 +482,15 @@ def render_board_png(
             for t in legend_items
         ]
         ax.legend(
-            handles,
-            legend_items,
-            loc="center left",
-            bbox_to_anchor=(1.01, 0.5),
-            borderaxespad=0.0,
-            frameon=False,
-            fontsize=7,
-            ncol=1,
+            handles, legend_items,
+            loc="center left", bbox_to_anchor=(1.01, 0.5),
+            borderaxespad=0.0, frameon=False, fontsize=7, ncol=1
         )
-
         if len(present_typologies) > legend_max_items:
             ax.text(
-                1.01,
-                0.02,
+                1.01, 0.02,
                 f"+{len(present_typologies) - legend_max_items} tipologías más",
-                transform=ax.transAxes,
-                fontsize=7,
-                ha="left",
-                va="bottom",
+                transform=ax.transAxes, fontsize=7, ha="left", va="bottom"
             )
 
     buf = io.BytesIO()
@@ -476,7 +503,6 @@ def render_board_png(
 # UI
 # =========================================================
 st.set_page_config(page_title=APP_TITLE, layout="wide")
-
 st.markdown(
     """
 <style>
@@ -490,7 +516,7 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
-st.caption("v5: sidebar + secciones + Drive dropdown. Misma lógica y reglas.")
+st.caption("v5: selector CSV desde carpeta de Drive (dropdown) o subida manual.")
 
 
 # ---------------- Sidebar ----------------
@@ -583,7 +609,6 @@ except Exception as e:
 
 # ---------------- Sidebar filters ----------------
 projects = sorted(pieces["ProjectID"].astype(str).unique().tolist())
-
 with st.sidebar.expander("Filtros", expanded=True):
     default_sel = projects[:50] if len(projects) > 50 else projects
     selected_projects = st.multiselect("ID de proyecto", projects, default=default_sel)
@@ -635,7 +660,7 @@ m4.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
 st.divider()
 
 
-# ---------------- Main: Vista previa ----------------
+# ---------------- Main: Vista previa (filtrable) ----------------
 with st.expander("Vista previa (filtrable)", expanded=False):
     HIDE_PREVIEW_COLS = {"Material_norm", "Gama_norm", "Acabado_norm"}
     cols_all = [c for c in pieces.columns if c not in HIDE_PREVIEW_COLS]
@@ -647,10 +672,10 @@ with st.expander("Vista previa (filtrable)", expanded=False):
         if len(uniq) > 300:
             st.info(f"Hay {len(uniq)} valores distintos. Usa búsqueda por texto.")
             query = st.text_input("Buscar texto", value="")
-            if query:
-                preview_df = filtered[filtered[col_filter].astype(str).str.contains(query, case=False, na=False)]
-            else:
-                preview_df = filtered
+            preview_df = (
+                filtered[filtered[col_filter].astype(str).str.contains(query, case=False, na=False)]
+                if query else filtered
+            )
         else:
             selected_vals = st.multiselect("Valores", uniq, default=uniq)
             preview_df = filtered[filtered[col_filter].astype(str).isin(selected_vals)]
@@ -803,14 +828,13 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
     cols_n = auto_preview_cols(int(preview_width_px))
 
     preview_images: List[Tuple[str, int, bytes]] = []
-
     zip_buf = io.BytesIO()
+
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for keys, grp in filtered.groupby(
             ["Material_norm", "Gama_norm", "Acabado_norm", "Material", "Gama", "Acabado"], dropna=False
         ):
             mat_n, gama_n, acab_n, _mat_raw, gama_raw, acab_raw = keys
-
             rule = get_board_rule(gama_n, acab_n)
             if rule is None:
                 continue
@@ -830,7 +854,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
             for bi, placed_list in enumerate(boards, start=1):
                 title = f"{APP_TITLE} | {group_name.replace('__', ' / ')} | Tablero {bi}/{len(boards)}"
-
                 png_bytes = render_board_png(
                     board_w=board_w,
                     board_h=board_h,
@@ -840,7 +863,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
                     title=title,
                     color_by_typology=colors,
                 )
-
                 zf.writestr(f"{group_name}/TABLERO_{bi:03d}.png", png_bytes)
 
                 if preview_max_boards_per_group == 0 or bi <= int(preview_max_boards_per_group):
@@ -856,14 +878,12 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
     if preview_images:
         st.markdown("### Previsualización")
-
         groups: Dict[str, List[Tuple[int, bytes]]] = {}
         for g, bi, png in preview_images:
             groups.setdefault(g, []).append((bi, png))
 
         for group_name, imgs in groups.items():
             imgs.sort(key=lambda x: x[0])
-
             with st.expander(group_name.replace("__", " / "), expanded=False):
                 cols = st.columns(cols_n)
                 for idx, (bi, pngbytes) in enumerate(imgs):
@@ -878,6 +898,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
 
