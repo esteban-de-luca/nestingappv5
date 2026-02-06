@@ -1,10 +1,9 @@
-import json
 import io
 import csv
 import zipfile
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 
 import pandas as pd
 import streamlit as st
@@ -67,21 +66,45 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 
 
 # =========================================================
-# Google Drive helpers
+# Google Drive helpers (NUEVO: lee secrets por campos sueltos, no json)
 # =========================================================
 def get_drive_service():
+    """
+    Requiere secrets.toml / Streamlit Secrets:
+
+    [gdrive]
+    folder_id = "..."
+
+    [gdrive_sa]
+    type = "service_account"
+    project_id = "..."
+    private_key_id = "..."
+    private_key = """-----BEGIN PRIVATE KEY-----
+    ...
+    -----END PRIVATE KEY-----"""
+    client_email = "....iam.gserviceaccount.com"
+    client_id = "..."
+    token_uri = "https://oauth2.googleapis.com/token"
+    """
+    if "gdrive_sa" not in st.secrets:
+        raise ValueError("Falta la sección [gdrive_sa] en Secrets.")
+
     sa_info = dict(st.secrets["gdrive_sa"])
 
-    # Si tu private_key viniera con \n escapados, esto lo corrige.
-    # Si ya viene con saltos reales, no rompe nada.
-    sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+    # Normaliza: a veces llega con \\n
+    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
+        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+
+    required = ["type", "client_email", "token_uri", "private_key"]
+    missing = [k for k in required if k not in sa_info or not sa_info[k]]
+    if missing:
+        raise ValueError(f"Secrets [gdrive_sa] incompleto. Faltan: {missing}")
 
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
-
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -95,27 +118,6 @@ def list_csv_files_in_folder(folder_id: str) -> List[dict]:
         pageSize=200
     ).execute()
     return resp.get("files", [])
-
-def get_drive_service():
-    # Lee el JSON del service account desde Secrets
-    sa_json = st.secrets["gdrive_sa"]["json"]
-
-    # Por si se pegó con espacios/lines raros
-    sa_json = sa_json.strip()
-
-    sa_info = json.loads(sa_json)
-
-    # Garantiza que los campos clave existen
-    required = ["client_email", "token_uri", "private_key", "type"]
-    missing = [k for k in required if k not in sa_info]
-    if missing:
-        raise ValueError(f"Secrets gdrive_sa.json NO contiene campos requeridos: {missing}")
-
-    creds = service_account.Credentials.from_service_account_info(
-        sa_info,
-        scopes=["https://www.googleapis.com/auth/drive.readonly"],
-    )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
 def download_drive_file_as_bytes(file_id: str) -> bytes:
@@ -184,7 +186,7 @@ def get_board_rule(gama_norm: str, acabado_norm: str):
 
 
 def auto_preview_cols(preview_width_px: int) -> int:
-    # Opción 1: columnas automáticas según el tamaño de miniatura (evita solapes).
+    # Columnas automáticas según el tamaño de miniatura (evita solapes).
     if preview_width_px >= 360:
         return 2
     if preview_width_px >= 300:
@@ -509,7 +511,7 @@ def render_board_png(
 
 
 # =========================================================
-# UI (v5)
+# UI
 # =========================================================
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
@@ -526,15 +528,13 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
-st.caption("v5: sidebar + secciones + Drive dropdown. Misma lógica y reglas que v4/v5.")
+st.caption("v5: sidebar + secciones + Drive dropdown. Misma lógica y reglas.")
 
 
 # ---------------- Sidebar ----------------
 st.sidebar.header("Configuración")
 
-# Fuente de CSV
 source = st.sidebar.radio("Origen del CSV", ["Google Drive (carpeta)", "Subida manual"], index=0)
-
 uploaded = None  # objeto con getvalue()
 
 if source == "Google Drive (carpeta)":
@@ -554,7 +554,6 @@ if source == "Google Drive (carpeta)":
         st.sidebar.warning("No se encontraron CSV en la carpeta (o no hay permisos).")
         st.stop()
 
-    # Dropdown: nombre — fecha
     options = {
         f'{f["name"]}  —  {str(f.get("modifiedTime",""))[:10]}': (f["id"], f["name"])
         for f in files
@@ -562,7 +561,6 @@ if source == "Google Drive (carpeta)":
     chosen_label = st.sidebar.selectbox("Selecciona un CSV de Drive", list(options.keys()))
     chosen_id, chosen_name = options[chosen_label]
 
-    # Botones
     b1, b2 = st.sidebar.columns(2)
     with b1:
         refresh = st.button("Refrescar lista")
@@ -570,7 +568,7 @@ if source == "Google Drive (carpeta)":
         load_drive = st.button("Cargar CSV")
 
     if refresh:
-        list_csv_files_in_folder.clear()  # limpia cache
+        list_csv_files_in_folder.clear()
         st.rerun()
 
     if load_drive:
@@ -621,7 +619,7 @@ except Exception as e:
     st.stop()
 
 
-# ---------------- Sidebar filters (now that we have data) ----------------
+# ---------------- Sidebar filters ----------------
 projects = sorted(pieces["ProjectID"].astype(str).unique().tolist())
 
 with st.sidebar.expander("Filtros", expanded=True):
@@ -675,7 +673,7 @@ m4.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
 st.divider()
 
 
-# ---------------- Main: Vista previa (filtrable) ----------------
+# ---------------- Main: Vista previa ----------------
 with st.expander("Vista previa (filtrable)", expanded=False):
     HIDE_PREVIEW_COLS = {"Material_norm", "Gama_norm", "Acabado_norm"}
     cols_all = [c for c in pieces.columns if c not in HIDE_PREVIEW_COLS]
@@ -842,7 +840,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
     preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
     cols_n = auto_preview_cols(int(preview_width_px))
 
-    preview_images: List[Tuple[str, int, bytes]] = []  # [(group_name, tablero_idx, png_bytes)]
+    preview_images: List[Tuple[str, int, bytes]] = []
 
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -908,11 +906,7 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
                 cols = st.columns(cols_n)
                 for idx, (bi, pngbytes) in enumerate(imgs):
                     with cols[idx % cols_n]:
-                        st.image(
-                            pngbytes,
-                            caption=f"Tablero {bi}",
-                            width=int(preview_width_px),  # NO adaptativo
-                        )
+                        st.image(pngbytes, caption=f"Tablero {bi}", width=int(preview_width_px))
 
     st.success("ZIP generado.")
     st.download_button(
@@ -922,7 +916,5 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
-
-
 
 
