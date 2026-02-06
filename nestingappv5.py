@@ -1,4 +1,4 @@
-import io
+Fimport io
 import csv
 import zipfile
 import unicodedata
@@ -53,9 +53,9 @@ GAMA_DISPLAY = {
 
 # Preview UI defaults (no adaptativo)
 PREVIEW_WIDTH_PRESETS = {
-    "XS (muy pequeño)": 180,
-    "S (pequeño)": 220,
-    "M (medio)": 260,
+    "XS (muy pequeño)": 200,
+    "S (pequeño)": 300,
+    "M (medio)": 400,
 }
 DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 DEFAULT_PREVIEW_COLS = 4
@@ -788,3 +788,4 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
