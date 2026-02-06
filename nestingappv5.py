@@ -68,44 +68,6 @@ DEFAULT_PREVIEW_PRESET = "S (pequeño)"
 # =========================================================
 # Google Drive helpers (NUEVO: lee secrets por campos sueltos, no json)
 # =========================================================
-def get_drive_service():
-    """
-    Requiere secrets.toml / Streamlit Secrets:
-
-    [gdrive]
-    folder_id = "..."
-
-    [gdrive_sa]
-    type = "service_account"
-    project_id = "..."
-    private_key_id = "..."
-    private_key = """-----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----"""
-    client_email = "....iam.gserviceaccount.com"
-    client_id = "..."
-    token_uri = "https://oauth2.googleapis.com/token"
-    """
-    if "gdrive_sa" not in st.secrets:
-        raise ValueError("Falta la sección [gdrive_sa] en Secrets.")
-
-    sa_info = dict(st.secrets["gdrive_sa"])
-
-    # Normaliza: a veces llega con \\n
-    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
-        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
-
-    required = ["type", "client_email", "token_uri", "private_key"]
-    missing = [k for k in required if k not in sa_info or not sa_info[k]]
-    if missing:
-        raise ValueError(f"Secrets [gdrive_sa] incompleto. Faltan: {missing}")
-
-    creds = service_account.Credentials.from_service_account_info(
-        sa_info,
-        scopes=["https://www.googleapis.com/auth/drive.readonly"],
-    )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
-
 
 @st.cache_data(ttl=60, show_spinner=False)
 def list_csv_files_in_folder(folder_id: str) -> List[dict]:
@@ -916,5 +878,6 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
+
 
 
