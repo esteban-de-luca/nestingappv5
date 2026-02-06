@@ -51,27 +51,18 @@ GAMA_DISPLAY = {
     "laminado": "Laminado",
 }
 
-# Preview UI defaults (no adaptativo)
+# Preview UI defaults (NO adaptativo)
 PREVIEW_WIDTH_PRESETS = {
-    "XS (muy pequeño)": 200,
-    "S (pequeño)": 300,
-    "M (medio)": 400,
+    "XS (muy pequeño)": 220,
+    "S (pequeño)": 280,
+    "M (medio)": 340,
 }
 DEFAULT_PREVIEW_PRESET = "S (pequeño)"
-DEFAULT_PREVIEW_COLS = 4
 
 
 # ---------------------------------------------------------
 # Helpers normalización
 # ---------------------------------------------------------
-def auto_preview_cols(preview_width_px: int) -> int:
-    # Ajuste muy estable para pantallas normales + fullscreen
-    if preview_width_px >= 360:
-        return 2
-    if preview_width_px >= 300:
-        return 3
-    return 4
-
 def _norm_text(s: str) -> str:
     s = (s or "").strip().lower()
     s = unicodedata.normalize("NFKD", s)
@@ -111,6 +102,18 @@ def get_board_rule(gama_norm: str, acabado_norm: str):
         rule["rotate"] = True
 
     return rule
+
+
+def auto_preview_cols(preview_width_px: int) -> int:
+    """
+    Opción 1: columnas automáticas según el tamaño de miniatura.
+    Evita solapes y mantiene una densidad visual razonable.
+    """
+    if preview_width_px >= 360:
+        return 2
+    if preview_width_px >= 300:
+        return 3
+    return 4
 
 
 # ---------------------------------------------------------
@@ -437,11 +440,10 @@ def render_board_png(
 # =========================================================
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
-# CSS base (discreto, sin romper nada)
+# CSS base (discreto)
 st.markdown(
     """
 <style>
-/* reduce un poco el “aire” vertical */
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 h1 { font-size: 1.8rem; }
 small, .stCaption { opacity: 0.85; }
@@ -461,16 +463,24 @@ st.sidebar.header("Configuración")
 uploaded = st.sidebar.file_uploader("Subir CSV", type=["csv"])
 st.sidebar.caption("Formato: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
 
-with st.sidebar.expander("Filtros", expanded=True):
-    # placeholders (se rellenan tras cargar)
-    pass
-
 with st.sidebar.expander("Nesting visual", expanded=True):
+    # IMPORTANTE: ya no hay checkbox de previsualización:
+    # - la previsualización se genera SIEMPRE que se generen layouts
     make_layouts = st.checkbox("Generar layouts (PNG + ZIP)", value=False)
-    preview_layouts = st.checkbox("Previsualizar en pantalla", value=False)
-    preview_preset = st.selectbox("Tamaño miniaturas", list(PREVIEW_WIDTH_PRESETS.keys()), index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET))
-    preview_cols = st.selectbox("Columnas (grid)", [3, 4, 5], index=[3, 4, 5].index(DEFAULT_PREVIEW_COLS))
-    preview_max_boards_per_group = st.number_input("Máx. tableros por grupo (0=todos)", min_value=0, max_value=200, value=6, step=1)
+
+    preview_preset = st.selectbox(
+        "Tamaño miniaturas",
+        list(PREVIEW_WIDTH_PRESETS.keys()),
+        index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
+    )
+    preview_max_boards_per_group = st.number_input(
+        "Máx. tableros por grupo (0=todos)",
+        min_value=0,
+        max_value=200,
+        value=6,
+        step=1,
+    )
+    st.caption("Columnas del preview: automático según el tamaño para evitar solapes.")
 
 with st.sidebar.expander("Notas (para export)", expanded=False):
     nota_titulo = st.text_input("Título / referencia", value="")
@@ -506,7 +516,6 @@ if filtered.empty:
 total_projects = filtered["ProjectID"].nunique()
 total_pieces = len(filtered)
 
-# Calculamos tableros globales (por Material+Gama+Acabado) para el “quick summary”
 boards_total_global = 0
 util_vals = []
 
@@ -569,8 +578,7 @@ with st.expander("Vista previa (filtrable)", expanded=False):
     st.dataframe(preview_df[cols_selected].head(250), use_container_width=True)
 
 
-# ---------------- Main: Tablas resultados (expanders) ----------------
-# Tabla por proyecto + material + gama + acabado
+# ---------------- Main: Tablas resultados ----------------
 rows = []
 issues = []
 
@@ -618,7 +626,6 @@ by_project_df = pd.DataFrame(rows)
 if not by_project_df.empty:
     by_project_df = by_project_df.sort_values(["ProjectID", "Material", "Gama", "Acabado"]).reset_index(drop=True)
 
-# Resumen global por material + gama + acabado (sin Rotar)
 rows2 = []
 group_cols_global = ["Material_norm", "Gama_norm", "Acabado_norm", "Material", "Gama", "Acabado"]
 for keys, grp in filtered.groupby(group_cols_global, dropna=False):
@@ -710,9 +717,11 @@ st.caption("Se generan PNGs por tablero para cada grupo Material + Gama + Acabad
 
 if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
     colors = typology_color_map(filtered["Typology"].astype(str).tolist())
-    preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 220)
+    preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
 
-    # para preview en pantalla
+    cols_n = auto_preview_cols(int(preview_width_px))
+
+    # Preview siempre ON (sin checkbox)
     preview_images: List[Tuple[str, int, bytes]] = []  # [(group_name, tablero_idx, png_bytes)]
 
     zip_buf = io.BytesIO()
@@ -754,9 +763,9 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
                 zf.writestr(f"{group_name}/TABLERO_{bi:03d}.png", png_bytes)
 
-                if preview_layouts:
-                    if preview_max_boards_per_group == 0 or bi <= int(preview_max_boards_per_group):
-                        preview_images.append((group_name, bi, png_bytes))
+                # Preview: siempre se recolecta (limitado por el número máximo)
+                if preview_max_boards_per_group == 0 or bi <= int(preview_max_boards_per_group):
+                    preview_images.append((group_name, bi, png_bytes))
 
             if unplaced:
                 txt = "PIEZAS QUE NO CABEN EN EL TABLERO (omitidas):\n\n"
@@ -766,8 +775,8 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
 
     zip_buf.seek(0)
 
-    # Preview en pantalla (NO adaptativo): width fijo + grid horizontal
-    if preview_layouts and preview_images:
+    # Preview en pantalla (SIEMPRE visible tras generar)
+    if preview_images:
         st.markdown("### Previsualización")
 
         groups: Dict[str, List[Tuple[int, bytes]]] = {}
@@ -778,12 +787,15 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
             imgs.sort(key=lambda x: x[0])
 
             with st.expander(group_name.replace("__", " / "), expanded=False):
-                cols_n = auto_preview_cols(int(preview_width_px))
                 cols = st.columns(cols_n)
                 for idx, (bi, pngbytes) in enumerate(imgs):
-                     with cols[idx % cols_n]:
-                    st.image(pngbytes, caption=f"Tablero {bi}", width=int(preview_width_px),)
-
+                    with cols[idx % cols_n]:
+                        # NO adaptativo: width fijo
+                        st.image(
+                            pngbytes,
+                            caption=f"Tablero {bi}",
+                            width=int(preview_width_px),
+                        )
 
     st.success("ZIP generado.")
     st.download_button(
@@ -793,6 +805,5 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
         mime="application/zip",
         use_container_width=True,
     )
-
 
 
