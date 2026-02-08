@@ -2,6 +2,7 @@ import io
 import csv
 import zipfile
 import unicodedata
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
@@ -21,6 +22,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
+SIDEBAR_LOGO_PATH = Path("assets/logo.png")
 
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
@@ -514,6 +516,9 @@ hr { margin: 0.8rem 0; }
 
 st.title(APP_TITLE)
 st.caption("v5: selector CSV desde Drive (dropdown) o subida manual. (Fix: el CSV no se pierde al generar layouts)")
+
+if SIDEBAR_LOGO_PATH.exists():
+    st.sidebar.image(str(SIDEBAR_LOGO_PATH), use_container_width=True)
 
 st.sidebar.header("Configuración")
 
