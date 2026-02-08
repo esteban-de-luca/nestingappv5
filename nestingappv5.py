@@ -2,6 +2,7 @@ import io
 import csv
 import zipfile
 import unicodedata
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
@@ -21,6 +22,8 @@ from googleapiclient.http import MediaIoBaseDownload
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
+LAST_UPDATED = "08/02/2026 16:50"
+SIDEBAR_LOGO_PATH = Path("assets/logo.png")
 
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
@@ -513,7 +516,10 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
-st.caption("v5: selector CSV desde Drive (dropdown) o subida manual. (Fix: el CSV no se pierde al generar layouts)")
+st.caption(f"Última actualización: {LAST_UPDATED}")
+
+if SIDEBAR_LOGO_PATH.exists():
+    st.sidebar.image(str(SIDEBAR_LOGO_PATH), use_container_width=True)
 
 st.sidebar.header("Configuración")
 
@@ -567,20 +573,19 @@ else:
 
 st.sidebar.caption("Formato esperado: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
 
-with st.sidebar.expander("Nesting visual", expanded=True):
-    make_layouts = st.checkbox("Generar layouts (PNG + ZIP)", value=False)
-    preview_preset = st.selectbox(
-        "Tamaño miniaturas",
-        list(PREVIEW_WIDTH_PRESETS.keys()),
-        index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
-    )
-    preview_max_boards_per_group = st.number_input(
-        "Máx. tableros por grupo (0=todos)",
-        min_value=0,
-        max_value=200,
-        value=6,
-        step=1,
-    )
+st.sidebar.subheader("Opciones de visualización")
+preview_preset = st.sidebar.selectbox(
+    "Tamaño miniaturas",
+    list(PREVIEW_WIDTH_PRESETS.keys()),
+    index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
+)
+preview_max_boards_per_group = st.sidebar.number_input(
+    "Máx. tableros por grupo (0=todos)",
+    min_value=0,
+    max_value=200,
+    value=6,
+    step=1,
+)
 
 with st.sidebar.expander("Notas (para export)", expanded=False):
     nota_titulo = st.text_input("Título / referencia", value="")
@@ -799,10 +804,6 @@ st.divider()
 
 # ---- Nesting visual ----
 st.subheader("Nesting visual")
-
-if not make_layouts:
-    st.info("Activa “Generar layouts (PNG + ZIP)” desde el panel lateral para generar nesting visual.")
-    st.stop()
 
 st.caption("Se generan PNGs por tablero para cada grupo Material + Gama + Acabado (según el filtro de proyectos).")
 
