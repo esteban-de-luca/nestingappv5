@@ -22,6 +22,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
+LAST_UPDATED = "08/02/2026 17:15"
 SIDEBAR_LOGO_PATH = Path("assets/logo.png")
 
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
@@ -515,6 +516,7 @@ hr { margin: 0.8rem 0; }
 )
 
 st.title(APP_TITLE)
+st.caption(f"Última actualización: {LAST_UPDATED}")
 st.caption("v5: selector CSV desde Drive (dropdown) o subida manual. (Fix: el CSV no se pierde al generar layouts)")
 
 if SIDEBAR_LOGO_PATH.exists():
@@ -572,6 +574,19 @@ else:
 
 st.sidebar.caption("Formato esperado: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
 
+st.sidebar.subheader("Opciones de visualización")
+preview_preset = st.sidebar.selectbox(
+    "Tamaño miniaturas",
+    list(PREVIEW_WIDTH_PRESETS.keys()),
+    index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
+)
+preview_max_boards_per_group = st.sidebar.number_input(
+    "Máx. tableros por grupo (0=todos)",
+    min_value=0,
+    max_value=200,
+    value=6,
+    step=1,
+)
 with st.sidebar.expander("Nesting visual", expanded=True):
     make_layouts = st.checkbox("Generar layouts (PNG + ZIP)", value=False)
     preview_preset = st.selectbox(
