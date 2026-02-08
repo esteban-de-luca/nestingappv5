@@ -2,6 +2,7 @@ import io
 import csv
 import zipfile
 import unicodedata
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
@@ -21,6 +22,8 @@ from googleapiclient.http import MediaIoBaseDownload
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
+LAST_UPDATED = "08/02/2026 17:15"
+SIDEBAR_LOGO_PATH = Path("assets/logo.png")
 
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
@@ -507,13 +510,17 @@ st.markdown(
 h1 { font-size: 1.8rem; }
 small, .stCaption { opacity: 0.85; }
 hr { margin: 0.8rem 0; }
+[data-testid="stSidebar"] { background-color: #A6A6A6; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 st.title(APP_TITLE)
-st.caption("v5: selector CSV desde Drive (dropdown) o subida manual. (Fix: el CSV no se pierde al generar layouts)")
+st.caption(f"Última actualización: {LAST_UPDATED}")
+
+if SIDEBAR_LOGO_PATH.exists():
+    st.sidebar.image(str(SIDEBAR_LOGO_PATH), use_container_width=True)
 
 st.sidebar.header("Configuración")
 
@@ -565,22 +572,21 @@ else:
         st.session_state["csv_name"] = getattr(up, "name", "upload.csv")
         st.sidebar.success(f"Cargado: {st.session_state['csv_name']}")
 
-st.sidebar.caption("Formato esperado: A=Proyecto, C=PieceID, D=Typology, E=Ancho, F=Alto, G=Material, H=Gama, I=Acabado.")
-
-with st.sidebar.expander("Nesting visual", expanded=True):
-    make_layouts = st.checkbox("Generar layouts (PNG + ZIP)", value=False)
-    preview_preset = st.selectbox(
-        "Tamaño miniaturas",
-        list(PREVIEW_WIDTH_PRESETS.keys()),
-        index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
-    )
-    preview_max_boards_per_group = st.number_input(
-        "Máx. tableros por grupo (0=todos)",
-        min_value=0,
-        max_value=200,
-        value=6,
-        step=1,
-    )
+st.sidebar.subheader("Opciones de visualización")
+preview_preset = st.sidebar.selectbox(
+    "Tamaño miniaturas",
+    list(PREVIEW_WIDTH_PRESETS.keys()),
+    index=list(PREVIEW_WIDTH_PRESETS.keys()).index(DEFAULT_PREVIEW_PRESET),
+    key="sidebar_preview_preset",
+)
+preview_max_boards_per_group = st.sidebar.number_input(
+    "Máx. tableros por grupo (0=todos)",
+    min_value=0,
+    max_value=200,
+    value=6,
+    step=1,
+    key="sidebar_preview_max_boards",
+)
 
 with st.sidebar.expander("Notas (para export)", expanded=False):
     nota_titulo = st.text_input("Título / referencia", value="")
@@ -600,9 +606,7 @@ except Exception as e:
     st.stop()
 
 projects = sorted(pieces["ProjectID"].astype(str).unique().tolist())
-with st.sidebar.expander("Filtros", expanded=True):
-    default_sel = projects[:50] if len(projects) > 50 else projects
-    selected_projects = st.multiselect("ID de proyecto", projects, default=default_sel)
+selected_projects = projects
 
 filtered = pieces[pieces["ProjectID"].astype(str).isin([str(p) for p in selected_projects])].copy()
 if filtered.empty:
@@ -610,7 +614,6 @@ if filtered.empty:
     st.stop()
 
 # ---- Resumen rápido ----
-total_projects = filtered["ProjectID"].nunique()
 total_pieces = len(filtered)
 
 boards_total_global = 0
@@ -641,11 +644,10 @@ for keys, grp in filtered.groupby(["Material_norm", "Gama_norm", "Acabado_norm"]
 
 avg_util = (sum(util_vals) / len(util_vals)) if util_vals else 0.0
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Proyectos", f"{total_projects}")
-m2.metric("Piezas", f"{total_pieces}")
-m3.metric("Tableros (est.)", f"{boards_total_global}")
-m4.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
+m1, m2, m3 = st.columns(3)
+m1.metric("Piezas", f"{total_pieces}")
+m2.metric("Tableros (est.)", f"{boards_total_global}")
+m3.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
 st.divider()
 
 # ---- Vista previa ----
@@ -758,9 +760,6 @@ by_finish_df = pd.DataFrame(rows2)
 if not by_finish_df.empty:
     by_finish_df = by_finish_df.sort_values(["Material", "Gama", "Acabado"]).reset_index(drop=True)
 
-with st.expander("Resultados por proyecto (tableros por proyecto + material + gama + acabado)", expanded=True):
-    st.dataframe(by_project_df, use_container_width=True)
-
 with st.expander("Resumen global (material + gama + acabado)", expanded=True):
     st.dataframe(by_finish_df, use_container_width=True)
 
@@ -799,22 +798,16 @@ st.divider()
 
 # ---- Nesting visual ----
 st.subheader("Nesting visual")
-
-if not make_layouts:
-    st.info("Activa “Generar layouts (PNG + ZIP)” desde el panel lateral para generar nesting visual.")
-    st.stop()
-
 st.caption("Se generan PNGs por tablero para cada grupo Material + Gama + Acabado (según el filtro de proyectos).")
 
-# Importante: botón que rerunea pero NO pierde el CSV porque está en session_state
-if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
-    colors = typology_color_map(filtered["Typology"].astype(str).tolist())
-    preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
-    cols_n = auto_preview_cols(int(preview_width_px))
+colors = typology_color_map(filtered["Typology"].astype(str).tolist())
+preview_width_px = PREVIEW_WIDTH_PRESETS.get(preview_preset, 280)
+cols_n = auto_preview_cols(int(preview_width_px))
 
-    preview_images: List[Tuple[str, int, bytes]] = []
-    zip_buf = io.BytesIO()
+preview_images: List[Tuple[str, int, bytes]] = []
+zip_buf = io.BytesIO()
 
+with st.spinner("Generando layouts automáticamente..."):
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for keys, grp in filtered.groupby(
             ["Material_norm", "Gama_norm", "Acabado_norm", "Material", "Gama", "Acabado"], dropna=False
@@ -859,33 +852,27 @@ if st.button("Generar layouts y preparar descarga ZIP", type="primary"):
                     txt += f"- PieceID: {it.piece_id} | Typology: {it.typology} | W:{it.w} | H:{it.h}\n"
                 zf.writestr(f"{group_name}/_PIEZAS_NO_CABEN.txt", txt)
 
-    zip_buf.seek(0)
+zip_buf.seek(0)
 
-    if preview_images:
-        st.markdown("### Previsualización")
-        groups: Dict[str, List[Tuple[int, bytes]]] = {}
-        for g, bi, png in preview_images:
-            groups.setdefault(g, []).append((bi, png))
+if preview_images:
+    st.markdown("### Previsualización")
+    groups: Dict[str, List[Tuple[int, bytes]]] = {}
+    for g, bi, png in preview_images:
+        groups.setdefault(g, []).append((bi, png))
 
-        for group_name, imgs in groups.items():
-            imgs.sort(key=lambda x: x[0])
-            with st.expander(group_name.replace("__", " / "), expanded=False):
-                cols = st.columns(cols_n)
-                for idx, (bi, pngbytes) in enumerate(imgs):
-                    with cols[idx % cols_n]:
-                        st.image(pngbytes, caption=f"Tablero {bi}", width=int(preview_width_px))
+    for group_name, imgs in groups.items():
+        imgs.sort(key=lambda x: x[0])
+        with st.expander(group_name.replace("__", " / "), expanded=False):
+            cols = st.columns(cols_n)
+            for idx, (bi, pngbytes) in enumerate(imgs):
+                with cols[idx % cols_n]:
+                    st.image(pngbytes, caption=f"Tablero {bi}", width=int(preview_width_px))
 
-    st.success("ZIP generado.")
-    st.download_button(
-        "Descargar ZIP de layouts (PNGs)",
-        data=zip_buf.getvalue(),
-        file_name="CUBRO_QuickNesting_v5_layouts.zip",
-        mime="application/zip",
-        use_container_width=True,
-    )
-
-
-
-
-
-
+st.success("ZIP generado automáticamente al cargar el CSV.")
+st.download_button(
+    "Descargar ZIP de layouts (PNGs)",
+    data=zip_buf.getvalue(),
+    file_name="CUBRO_QuickNesting_v5_layouts.zip",
+    mime="application/zip",
+    use_container_width=True,
+)
