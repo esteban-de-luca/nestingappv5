@@ -510,7 +510,37 @@ st.markdown(
 h1 { font-size: 1.8rem; }
 small, .stCaption { opacity: 0.85; }
 hr { margin: 0.8rem 0; }
-[data-testid="stSidebar"] { background-color: #A6A6A6; }
+[data-testid="stSidebar"] { background-color: #FFFFFF; }
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] div { color: #000000; }
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="input"] > div,
+[data-testid="stSidebar"] textarea {
+    background-color: #1f1f1f !important;
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] [data-baseweb="input"] input,
+[data-testid="stSidebar"] textarea { color: #FFFFFF !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    background-color: #1f1f1f;
+    border-radius: 8px;
+    padding: 0.25rem 0.4rem;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] label,
+[data-testid="stSidebar"] [data-testid="stExpander"] p,
+[data-testid="stSidebar"] [data-testid="stExpander"] span,
+[data-testid="stSidebar"] [data-testid="stExpander"] div {
+    color: #FFFFFF !important;
+}
+[data-testid="stMetricLabel"] { font-size: 1.5rem !important; }
+[data-testid="stMetricValue"] { font-size: 2.25rem !important; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -583,7 +613,7 @@ preview_max_boards_per_group = st.sidebar.number_input(
     "Máx. tableros por grupo (0=todos)",
     min_value=0,
     max_value=200,
-    value=6,
+    value=0,
     step=1,
     key="sidebar_preview_max_boards",
 )
@@ -644,7 +674,13 @@ for keys, grp in filtered.groupby(["Material_norm", "Gama_norm", "Acabado_norm"]
 
 avg_util = (sum(util_vals) / len(util_vals)) if util_vals else 0.0
 
-m1, m2, m3 = st.columns(3)
+project_display_name = (st.session_state.get("csv_name") or "Proyecto sin nombre")
+if project_display_name.lower().endswith(".csv"):
+    project_display_name = project_display_name[:-4]
+project_display_name = project_display_name.replace("_", " ")
+
+m0, m1, m2, m3 = st.columns([1.8, 1, 1, 1])
+m0.metric("Proyecto", project_display_name)
 m1.metric("Piezas", f"{total_pieces}")
 m2.metric("Tableros (est.)", f"{boards_total_global}")
 m3.metric("Aprovechamiento medio", f"{avg_util*100:.1f}%")
@@ -770,29 +806,17 @@ if issues:
 
 # ---- Descargas ----
 st.subheader("Descargas")
-d1, d2 = st.columns(2)
+by_finish_df_export = by_finish_df.copy()
+by_finish_df_export.insert(0, "Titulo", nota_titulo)
+by_finish_df_export.insert(1, "Notas", nota_texto)
 
-with d1:
-    st.download_button(
-        "Descargar CSV (por proyecto)",
-        data=by_project_df.to_csv(index=False).encode("utf-8"),
-        file_name="CUBRO_QuickNesting_v5_por_proyecto.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-
-with d2:
-    by_finish_df_export = by_finish_df.copy()
-    by_finish_df_export.insert(0, "Titulo", nota_titulo)
-    by_finish_df_export.insert(1, "Notas", nota_texto)
-
-    st.download_button(
-        "Descargar resumen (CSV)",
-        data=by_finish_df_export.to_csv(index=False).encode("utf-8"),
-        file_name="CUBRO_QuickNesting_v5_resumen_global.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+st.download_button(
+    "Descargar resumen (CSV)",
+    data=by_finish_df_export.to_csv(index=False).encode("utf-8"),
+    file_name="CUBRO_QuickNesting_v5_resumen_global.csv",
+    mime="text/csv",
+    use_container_width=True,
+)
 
 st.divider()
 
