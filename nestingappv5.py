@@ -521,14 +521,14 @@ hr { margin: 0.8rem 0; }
 [data-testid="stSidebar"] [data-baseweb="select"] > div,
 [data-testid="stSidebar"] [data-baseweb="input"] > div,
 [data-testid="stSidebar"] textarea {
-    background-color: #1f1f1f !important;
-    color: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] [data-baseweb="select"] * { color: #000000 !important; }
 [data-testid="stSidebar"] [data-baseweb="input"] input,
-[data-testid="stSidebar"] textarea { color: #FFFFFF !important; }
+[data-testid="stSidebar"] textarea { color: #000000 !important; }
 [data-testid="stSidebar"] [data-testid="stExpander"] details {
-    background-color: #1f1f1f;
+    background-color: #FFFFFF;
     border-radius: 8px;
     padding: 0.25rem 0.4rem;
 }
@@ -537,7 +537,7 @@ hr { margin: 0.8rem 0; }
 [data-testid="stSidebar"] [data-testid="stExpander"] p,
 [data-testid="stSidebar"] [data-testid="stExpander"] span,
 [data-testid="stSidebar"] [data-testid="stExpander"] div {
-    color: #FFFFFF !important;
+    color: #000000 !important;
 }
 [data-testid="stMetricLabel"] { font-size: 1.5rem !important; }
 [data-testid="stMetricValue"] { font-size: 2.25rem !important; }
